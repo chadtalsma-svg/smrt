@@ -39,6 +39,11 @@
       "rangeStrategy": "widen"
     },
     {
+      "description": "Biome runs as `npx --yes @biomejs/biome@<version>` in package.json scripts, lefthook.yml, and .github/workflows/test-suite.yml (#2710, #3446), which Renovate does not track. Bumping only the root devDependency left node_modules/.bin/biome on a newer Biome than the lint gate, with different diagnostics (#4233). Upgrade Biome by hand, moving the devDependency and every npx pin together.",
+      "matchPackageNames": ["@biomejs/biome"],
+      "enabled": false
+    },
+    {
       "description": "jsdom 30 moved event internals to private fields, and smrt-ui's trusted-gesture tests forge isTrusted/eventPhase through them (#3019). Hold jsdom below 30 until those tests are redesigned; remove this rule with #3019.",
       "matchPackageNames": ["jsdom"],
       "allowedVersions": "<30"
