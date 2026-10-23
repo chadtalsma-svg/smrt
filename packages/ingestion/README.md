@@ -10,7 +10,25 @@ methods through their authenticated application transport.
 
 Before starting a service, deploy the package manifest through the public s-m-r-t
 migration APIs or `smrt db:migrate`. `assertReady()` only checks existing tables.
-SQLite and PostgreSQL are supported; other engines fail construction.
+SQLite and PostgreSQL are supported; other engines fail construction. Index
+additions ship the same way: `intake_items_received_idx` (newest-first inbox
+paging on `tenant_id, confidential_scope_id, created_at, id`) is declared on the model and reaches existing deployments through the
+next manifest migration; there are no hand-written migration files in this
+package, and `smrt doctor --db` / `db:status --parity` report the index until
+it is applied.
+
+`listItemsPage({ limit?, cursor?, state?, itemIds?, scanLimit? })` returns
+`{ items: [{ item, state, cursor }], scanned, nextCursor? }`: one authorized
+inbox page newest receipt first with each row's durable inbox state and
+continuation cursor, and the number of rows the call examined. `listItems()`
+remains as a deprecated array-returning method that walks the private page
+scan to the end. Without the optional `cursorKey` service option every cursor
+names the last row the actor can read, and a page that finds no readable row
+within its scan limit fails with `IntakeScanLimitError`; with a server secret
+of at least 32 bytes, cursors are sealed and such a page resumes past what it
+skipped. `scanned` is for host
+accounting only. See [REVIEW.md](REVIEW.md) for the paging and authorization
+contract.
 
 A host supplies a database, AssetRuntime, authenticated tenant/actor/confidential
 scope, a live authorization callback, a registered jobs target, and an idempotent
@@ -20,7 +38,29 @@ transaction executor; it must intersect current grants with that ceiling. Never
 construct the scope, retention policy or budgets from incoming document labels.
 
 `receive` accepts bounded original byte buffers, with stable source part IDs,
-parent relationships and optional upstream identity/version. Source adapters own
+parent relationships, optional upstream identity/version and an optional
+original `filename` (kept for labels on `IntakeEvidenceDTO.filename`, never
+part of receipt identity). The multipart upload source, email attachments and
+the watched folder all supply it, as may a host `snapshotReference` part or a
+vendor webhook's verified parts. Every source delivers through one place that
+removes control, format (bidi, zero-width, tag), line-separator and
+default-ignorable characters (Unicode properties, see
+`src/presented-filename.ts`) and drops a name that is then empty or over 512
+characters, so an odd name falls back to the default label instead of failing
+the receipt (`receive` itself rejects such a name from a direct caller as
+`invalid`, and names are cleaned again when read back). Removing every format
+and default-ignorable character has display-only effects, since nothing uses
+the name as identity: emoji ZWJ sequences and presentation selectors flatten,
+ZWNJ/ZWJ are removed from Persian and Indic text (letters may join
+differently), and ideographic variation selectors are removed (a CJK variant
+shows its base glyph). Unicode normalization
+(NFC/NFKC) and confusable look-alike characters are out of scope: the name is
+still untrusted text, so render it as text, never as markup or a path. The
+upstream `sourceReference` is stored but not exposed on the DTO: its ids are
+upstream locators, not display text, and they are never cleaned. For email
+they are the provider's message locator (plus the attachment part id); for the
+watched folder the id is the raw folder entry name, whose cleaned form is what
+`filename` exposes. Source adapters own
 streaming and upstream snapshot retrieval. Receipt identity is tenant + source +
 delivery key; changing bytes or authenticated scope conflicts. Content equality
 in a different conversation does not deduplicate an arrival. The returned item

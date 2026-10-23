@@ -78,7 +78,11 @@ any write. `createAction` (process authority) also refuses the reserved
 `startReviewerAction` mints; `previewProposal` on such an action requires
 `review` access and the current handler@version. `resolveItem` supersedes
 queued/running analyses and completes dispatch intents under the item lock, and
-`claimAnalysis` returns `null` for a resolved item; `publishProposal` refuses
+`claimAnalysis` returns `null` for a resolved item; `recordReviewerInstruction`
+refuses it under the item lock (both on replay and in the locked append) and
+`getReinterpretationState` reports nothing in flight for it; the page query's
+`INBOX_STATE_SQL` and `loadReviewSummary` both rank `resolved` above
+`processing`; `publishProposal` refuses
 a resolved item and any reviewer-selected action. `[feedbackActionTransaction]`
 takes `targetRevisions` (default true); routing lineage re-checks pass false. The feedback context's
 `settled` flag gates selection only; lineage re-checks ignore it (FEEDBACK.md). `intake_dispositions` is a new model: deploy
@@ -126,6 +130,21 @@ The plan preview and target preconditions are part of its digest and visible in
 each step review; changed preview/preconditions require a fresh review.
 Abort/continue follows the pinned public playbook definition, with fresh authority
 at every step.
+
+Human corrections are the logical split and the reviewer instruction. Both are
+minted only by their authenticated review API under reviewer authority, written
+into a new immutable extraction configuration, and reach interpretation only as
+a digest-verified copy. Neither grants handlers, candidates, permissions or
+automation; `authorizeAutomatic` and preview/approval are unchanged for actions
+produced under an instruction. Recording either supersedes current suggestions
+and queues the existing dispatch stages (a new extraction revision, then
+interpretation — provider extraction budget is spent per correction because the
+predecessor pin is not reused); hosts wake their worker through
+`onSplit`/`onInstruct` and rely on dispatch repair otherwise. While a stage is
+queued/running the item reports `processing` regardless of earlier actions; a
+failed stage (extraction or interpretation) exposes its safe category through
+`getReinterpretationState`, and a retry anchored on the latest completed
+generation carries forward any newer split correction.
 
 `continueIntakeReview` uses the existing jobs continuation context. Applications
 create tasks with owner, tenant and exact `{recordId, revision, inputKey}` binding

@@ -37,6 +37,15 @@ describe('reference review host provisioning', () => {
         result: { output: { proposals: { suggestions: [] } } },
       })),
       getEvidence: vi.fn(async () => []),
+      listReviewerInstructions: vi.fn(async () => []),
+      getReinterpretationState: vi.fn(async () => ({
+        revision: 1,
+        processingState: 'completed',
+        failure: null,
+        reinterpreting: false,
+        generationAttemptId: null,
+        instructionInEffect: null,
+      })),
       listHandlers: vi.fn(async () => [{ id: 'host:draft', version: '1' }]),
     };
     const host = Object.assign(Object.create(ReferenceReviewHost.prototype), {

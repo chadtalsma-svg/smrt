@@ -34,22 +34,28 @@ export async function loadReviewSummary(
   } while (cursor);
   const current = await service.getItem(item.id);
   if (!requested) throw new Error('Review page unavailable');
-  // A reviewer disposition is terminal unless an action actually applied.
+  // A reviewer disposition is terminal and wins over everything except an
+  // applied action (which `resolveItem` refuses, so it cannot co-occur): a
+  // resolved item never runs again (`resolveItem` supersedes queued/running
+  // analysis and `claimAnalysis` refuses it) even though its processingState
+  // keeps its last value. Otherwise a queued/running stage (reprocess, split or
+  // instruction) supersedes earlier actions, which are now stale; it must read
+  // as processing regardless of them. `INBOX_STATE_SQL` applies the same order.
   const state: InboxState =
     current.disposition && !succeeded
       ? 'resolved'
-      : total
-        ? succeeded === total
-          ? 'completed'
-          : succeeded
-            ? 'partially_completed'
-            : deferred
-              ? 'deferred'
-              : failed
-                ? 'failed'
-                : 'waiting'
-        : ['queued', 'running'].includes(current.processingState)
-          ? 'processing'
+      : ['queued', 'running'].includes(current.processingState)
+        ? 'processing'
+        : total
+          ? succeeded === total
+            ? 'completed'
+            : succeeded
+              ? 'partially_completed'
+              : deferred
+                ? 'deferred'
+                : failed
+                  ? 'failed'
+                  : 'waiting'
           : current.processingState === 'needs_attention'
             ? 'failed'
             : 'unresolved';

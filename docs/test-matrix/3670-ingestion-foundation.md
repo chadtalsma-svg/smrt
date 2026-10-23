@@ -32,9 +32,10 @@ Provider/component/e2e/evaluation lanes are frozen but have no implementation in
 | Immutable foundations | explicit stable action identity; proposal expected-revision CAS; pinned attempt digest; plan revision replay; successful action refuses new proposal | U,P |
 | Retention/deletion | revoke before failed purge; retry deletion; success tombstones; feedback content redaction; actual late-written object removed by next sweep | U,P |
 | Database rollback | owning executor rollback leaves both item and evidence unchanged | U,P |
-| Migrations/types | public MigrationTracker applies manifest DDL on each engine; registry columns/indexes match; live schema diff empty; missing schema fails diagnostic; fractional confidence round-trip | U,P |
+| Migrations/types | public MigrationTracker applies manifest DDL on each engine; registry columns/indexes (including `intake_items_received_idx`) match; live schema diff empty; missing schema fails diagnostic; fractional confidence round-trip | U,P |
 | Browser boundary | built root and DTO dependency graph bundled with browser conditions and banned provider/Node imports | K |
 | Host authority | owner and delegated allow; unrelated/revoked actor and foreign tenant/confidential scope deny at list/item/evidence/byte reads and writes | U,P |
+| Inbox paging (#4211) | 300 then 1500 seeded items: newest-first order with id tiebreak, identical query counts per page at both sizes, one authorize per ceiling per batch, denied ceilings refill the page, full state-filtered pages with honest `nextCursor`, id restriction, limit/cursor/state/id validation and the 100-row ceiling, index-backed plan without sort or table scan on both engines, mostly-denied actor bounded by the 1000-row scan ceiling with short pages and complete walk, foreign confidential scope empty; proposals suite: read-only handler gate over a cloned page with handler/operation/access/principal/ceiling denials, version drift omitted and no writes; deprecated `listItems()` equals the paged walk; service-foreign receipt times skipped with partial pages, a 130-row run passed in one call and a row-free error only without progress | U,P |
 
 No domain action is executed in this child. The durable-success fixture is inserted
 by trusted test setup to prove proposal/reprocessing/retention refusal and replay
@@ -122,6 +123,81 @@ typecheck and affected repository gates run. Ingestion U/P, core PostgreSQL and
 full root runtime evidence carry forward because only test expectations and
 this matrix change; no numeric, UUID, conflict, timestamp or migration path changes.
 
+### #4212 reviewer instructions as trusted guidance
+
+`proposals.test.ts` and `proposals.postgres.test.ts` share three cases. The
+record case covers reviewer-grant and actor denial, empty/oversized text, stale
+revision, replay identity and changed-text conflict, immediate suggestion
+staleness, the extraction-configuration record (`kind`, id, digest, actor), the
+digest-verified interpretation copy, the separate trusted-guidance prompt section
+after the untrusted-evidence instruction, unchanged `offered`/`catalogDigest`,
+`provenance.reviewerInstruction`, `automaticActionEligible: false` with
+`authorizeAutomatic` refusal, supersession (`supersedesId`, newest-first history)
+and a guided reply naming an unoffered handler failing as `provider_error` with
+no domain effect. The injection case shows `analyze` refusing an extraction-stage
+instruction and a forged interpretation copy failing before provider disclosure
+while history stays empty. The feedback case shows the judgment carrying
+`{id, digest, text}`, `retrieveFeedback` returning it with the example, and the
+receiving generation seeing it only as example content. Further shared cases cover `processing` state with earlier (stale) actions and
+`getReinterpretationState`; an instruction retained beside a later split
+correction with `human_split_not_respected` still enforced; a tampered stored
+extraction record and a well-formed forged interpretation copy both failing
+before provider disclosure; replay of a superseded request ID, a concurrent
+double record (exactly one wins) and retry against the latest completed
+generation after a failed re-extraction, after a failed **interpretation**
+(old anchor rejected once a newer interpretation completes), and with a split
+recorded after the anchor carried into the retry; retries refused while the
+later work is queued, running, between extraction and interpretation, or
+interpreting, then accepted once interpretation fails; judgments storing only the
+instruction reference with retrieval joining the text, a write-time refusal when
+the joined example alone exceeds the read budget (nothing written), an exactly
+fitting judgment recording and retrieving at its exact size, one byte short
+refused, the handler `policy.maxBytes` side of the write-time `min()` refusing
+on its own, and re-signed stored references with a wrong digest or id excluded;
+a wedged gap (extraction completed, interpretation never appended) staying in
+flight up to exactly the item lease and then reporting `not_started` and
+accepting the retry, which recovers; a slow host's late interpretation append
+after that retry refused with `GenerationSourceStaleError` (nothing appended, the
+retry still queued, then completing under the retried instruction); missing
+completion timing treated as expired immediately; the existing superseded
+preparation case now refused at append time; genuinely interleaved concurrency
+(on PostgreSQL a second real connection; on SQLite the shared write queue): two
+reviewers at one revision (one wins, one refused, no fork), an instruction and a
+split racing in both orders (the loser refused, both earlier corrections kept),
+and a double-clicked instruction and split replaying a duplicate committed after
+the unlocked replay check. Mutation evidence on PostgreSQL: the double-click
+case fails (`ReviewerInstructionStaleError`) with the replay-under-lock removed;
+the two race cases fail (the second writer is no longer blocked; the split race
+hangs) only when *every* item-row lock is removed, because the guards were
+already serialized twice before this change (the snapshot read's lock and the
+execution authorization's `item(db, id, true)` row lock, both in the same
+transaction before the guard step); the decision stage receiving the guidance
+exactly once under `reviewerGuidance` and never under `evidence` (all decision
+cases on both engines); the shared instruction-view projection used by both the
+published and reference hosts (`review-instruction-view.test.ts`: an instruction
+recorded between the history and state reads re-reads history instead of
+reporting a drop, `dropped` only when nothing is in effect); missing-attempt and non-finite `leaseMs` gap timing expiring
+immediately; and carried instruction text being
+counted in the exact feedback byte budget, with one byte short still failing
+closed before provider I/O (the existing byte-budget contract is unchanged). `review-host.test.ts`
+covers `instruct` wiring, `onInstruct` wakeup and the `current/applied/stale`
+projection; the component suite covers the textarea/button binding, disabled
+empty text, polling through `processing` until the in-place update (also with an
+earlier action present, with drafts and the textarea element preserved and no
+loading placeholder), the failure/retry binding path, the 5× backoff cap under fake timers, a
+transient thrown tick keeping the view then recovering, three thrown ticks
+failing closed and stopping, edited-versus-untouched split drafts, polling with
+Re-read disabled through the between-stages gap, a `{ stale: true }` result
+reloading with a note and keeping the draft instead of denying, the note
+cleared once a later poll shows the item settled (and at once when the reload
+answering the click is already settled), the
+`not_started` retry against the server binding, and stale display; the Chromium suite records a real instruction, observes the background
+"Reinterpreting…" state, the in-place update, provenance, unchanged original
+bytes, whitespace-only instruction text refused by server-side validation, and
+supersession. No schema or migration changes:
+the record lives in the existing append-only analysis ledger beside the split
+correction.
+
 ### #4116 retained dispatch routing
 
 `foundation.test.ts` and `foundation.postgres.test.ts` share the `dispatch route
@@ -150,7 +226,7 @@ on both databases (U, P):
 |---|---|---|---|---|
 | Start a reviewer-chosen handler | extraction-only, `provider_error` interpretation and wrong-suggestion items publish a `waiting_review` review with origin `reviewer-selected`; approve and apply create the real domain record; replay returns the same review | non-reviewer, foreign actor, unknown handler/version, unoffered media type, invalid arguments (no action row survives rollback), changed replay payload conflict | one locked item transaction through `buildBinding`/`publish` | U, P, components, E |
 | Never automatic | a generated proposal under the same layered opt-in is machine-authorizable | the reviewer-selected action is refused by `authorizeAutomatic` | execution transaction | U, P |
-| Handled, no action | disposition recorded once, projected on `IntakeItemDTO` as state and time only (reviewer/reason via `getItemDisposition` under reviewer authority, hidden from a denied reader), inbox state `resolved` and filterable; extraction-only items close too | non-reviewer/foreign tenant, invalid disposition, second request conflicts, authorized (live approval)/applied actions block while an exhausted failed action or a lapsed approval does not, executing/outcome_unknown/succeeded block too, later approve/correct/defer/re-preview/start/apply/retry/analyze/split/createAction refused while reject still works; createAction refuses reserved reviewer provenance; re-preview of a reviewer-selected action needs review authority and a fixed handler; resolve supersedes queued analysis and claimAnalysis refuses; privacy deletion and retention expiry keep only the kind for dispositions and routing feedback | append-only `intake_dispositions` under the item lock | U, P, components, E |
+| Handled, no action | disposition recorded once, projected on `IntakeItemDTO` as state and time only (reviewer/reason via `getItemDisposition` under reviewer authority, hidden from a denied reader), inbox state `resolved` and filterable; extraction-only items close too | non-reviewer/foreign tenant, invalid disposition, second request conflicts, authorized (live approval)/applied actions block while an exhausted failed action or a lapsed approval does not, executing/outcome_unknown/succeeded block too, later approve/correct/defer/re-preview/start/apply/retry/analyze/split/createAction refused while reject still works; createAction refuses reserved reviewer provenance; re-preview of a reviewer-selected action needs review authority and a fixed handler; resolve supersedes queued analysis and claimAnalysis, instruction recording and reinterpretation refuse; resolved outranks processing in the page state filter and the summary; privacy deletion and retention expiry keep only the kind for dispositions and routing feedback | append-only `intake_dispositions` under the item lock | U, P, components, E |
 | Routing feedback | `reviewer_routing` rows for approved handler choices and `none` dispositions; retrieved for comparable items with `kind`, `routing` and no model versions; included in generation input; two independent handler choices support a rule suggestion with `automaticActionEligible: false` | tenant/confidential scope and per-item capture/retrieve denial exclude; `none`, duplicate, rejected and deferred support rejected; a correction retires the example until re-approval; starting alone records nothing; a lapsed unapplied approval or a disposition excludes the example and its support at selection while lineage re-checks of used examples ignore later resolution, lapse, outcome changes and target writes; a replayed suggestion returns the stored row; stored routing support survives a target write while interpretation support keeps the target check; tampered routing origin excluded from retrieval and support; interpretation judgments on reviewer-selected actions (even rejected, on a generated item) refused and never retrieved, while judgments on resolved items still count; no rows without feedback configuration | owning transactions; live source revalidation per example | U, P |
 | UI | handler picker with suggestion/evidence pre-fill and missing fields, exact start payload, review and inbox no-action controls with reason, disposition replaces controls, origin label | malformed JSON rejected locally; absent callbacks render nothing; no implicit approve/apply/feedback | N/A | components, E |
 
